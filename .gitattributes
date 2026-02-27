@@ -1,0 +1,3 @@
+*.S linguist-language=GAS
+*.S tab-size=8
+*.f tab-size=8
