@@ -45,7 +45,7 @@
 \	FORTH is case-sensitive.  Use capslock!
 
 \ The primitive word /MOD (DIVMOD) leaves both the quotient and the remainder on the stack.  (On
-\ i386, the idivl instruction gives both anyway).  Now we can define the / and MOD in terms of /MOD
+\ AArch64, we use sdiv and msub to compute both).  Now we can define the / and MOD in terms of /MOD
 \ and a few other primitives.
 : / /MOD SWAP DROP ;
 : MOD /MOD DROP ;
@@ -1374,7 +1374,7 @@
 	FORTH strings are represented by a start address and length kept on the stack or in memory.
 
 	Most FORTHs don't handle C strings, but we need them in order to access the process arguments
-	and environment left on the stack by the Linux kernel, and to make some system calls.
+	and environment provided by the operating system, and to make some system calls.
 
 	Operation	Input		Output		FORTH word	Notes
 	----------------------------------------------------------------------
@@ -1461,15 +1461,16 @@
 (
 	THE ENVIRONMENT ----------------------------------------------------------------------
 
-	Linux makes the process arguments and environment available to us on the stack.
-
-	The top of stack pointer is saved by the early assembler code when we start up in the FORTH
-	variable S0, and starting at this pointer we can read out the command line arguments and the
-	environment.
+	The process arguments and environment are made available to us by the operating system.
 
 	On macOS AArch64, _main receives argc/argv in registers.  The assembly startup code
 	copies them into a contiguous buffer pointed to by the ARGS variable:
-	  ARGS@ points to: [argc] [argv[0]] [argv[1]] ... [NULL]
+
+	ARGS @ points to: [argc] [argv[0]] [argv[1]] ... [NULL]
+
+	ARGS@+0 points to argc (the number of command line arguments).
+	ARGS@+8 points to argv[0], ARGS@+16 points to argv[1] etc up to argv[argc-1].
+	argv[argc] is a NULL pointer.
 
 	The first word that we define, ARGC, pushes the number of command line arguments (note that
 	as with C argc, this includes the name of the command).
@@ -1512,7 +1513,7 @@
 	Miscellaneous words related to system calls, and standard access to files.
 )
 
-( BYE exits by calling the Linux exit(2) syscall. )
+( BYE exits by calling the exit(2) syscall. )
 : BYE		( -- )
 	0		( return code (0) )
 	SYS_EXIT	( system call number )
@@ -1535,17 +1536,26 @@
 	CELL /		( returns number of cells )
 ;
 
-( MORECORE is a no-op on macOS -- we have a fixed 1MB data segment. )
+(
+	MORECORE increases the data segment by the specified number of cells.
+
+	On macOS we use a fixed 1MB data segment allocated in .bss, so MORECORE is a no-op.
+	The original Linux version used brk(2) to extend the data segment dynamically.
+
+	This FORTH doesn't automatically increase the size of the data segment "on demand"
+	[ie. when , (COMMA), ALLOT, CREATE, and so on are used].  Instead the programmer
+	needs to be aware of how much space a large allocation will take and check UNUSED.
+)
 : MORECORE	( cells -- )
 	DROP		( ignore -- can't extend on macOS )
 ;
 
 (
 	Standard FORTH provides some simple file access primitives which we model on
-	top of Linux syscalls.
+	top of macOS syscalls.
 
 	The main complication is converting FORTH strings (address & length) into C
-	strings for the Linux kernel.
+	strings for the kernel.
 
 	Notice there is no buffering in this implementation.
 )
@@ -1622,7 +1632,7 @@
 	use it because ;CODE will put a NEXT at the end of your word.
 
 	The rest consists of some immediate words which expand into machine code appended to the
-	definition of the word.  Only a very tiny part of the i386 assembly space is covered, just
+	definition of the word.  Only a very tiny part of the AArch64 instruction space is covered, just
 	enough to write a few assembler primitives below.
 )
 
